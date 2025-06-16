@@ -99,6 +99,7 @@ jobs:
             echo "TAG_EXISTS=true" >> $GITHUB_ENV
           else
             echo "TAG_EXISTS=false" >> $GITHUB_ENV
+          fi
 
       # 11. Modify Tag if it Exists
       - name: Modify Tag
