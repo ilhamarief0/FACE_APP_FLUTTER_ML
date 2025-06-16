@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:faceabsensiapp/utils/app_constants.dart';
 import 'package:faceabsensiapp/models/absensi_history_item.dart';
 

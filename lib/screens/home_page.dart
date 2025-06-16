@@ -11,7 +11,7 @@ import 'package:faceabsensiapp/models/absensi_history_item.dart';
 import 'package:faceabsensiapp/api/absensi_api.dart';
 import 'package:faceabsensiapp/api/auth_api.dart';
 import 'package:faceabsensiapp/widgets/info_row_widget.dart';
-import 'package:faceabsensiapp/main.dart';
+import 'package:faceabsensiapp/main.dart'; // Untuk mengakses `cameras` global
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -61,7 +61,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   }
 
   Future<void> _initializeCamerasAndLoadData() async {
-    // Cameras are initialized in main.dart, just ensure they are available
     if (cameras.isEmpty) {
       try {
         cameras = await availableCameras();
@@ -71,8 +70,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       }
     }
     await _loadUserDataAndCheckFaceEnrollment();
-    await _fetchMahasiswaData();
-    await _fetchAbsensiHistory();
+    await _fetchData(); // Panggil _fetchData untuk memuat ulang semua data
   }
 
   Future<void> _loadUserDataAndCheckFaceEnrollment() async {
@@ -90,7 +88,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
-  Future<void> _fetchMahasiswaData() async {
+  // Fungsi baru untuk memuat ulang semua data
+  Future<void> _fetchData() async {
     setState(() {
       _isLoadingData = true;
       _errorMessage = null;
@@ -110,9 +109,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
 
     try {
-      final data = await _absensiApi.fetchKelasData(token);
+      final kelasData = await _absensiApi.fetchKelasData(token);
+      final absensiHistory = await _absensiApi.fetchAbsensiHistory(token);
+
       setState(() {
-        _mahasiswaList = data;
+        _mahasiswaList = kelasData;
+        _absensiHistoryList = absensiHistory;
         _isLoadingData = false;
       });
     } catch (e) {
@@ -130,24 +132,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
-  Future<void> _fetchAbsensiHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
-
-    if (token == null || token.isEmpty) {
-      return;
-    }
-
-    try {
-      final history = await _absensiApi.fetchAbsensiHistory(token);
-      setState(() {
-        _absensiHistoryList = history;
-      });
-      print('DEBUG_ABSENSI_HISTORY: Riwayat absensi berhasil dimuat: ${_absensiHistoryList.length} item');
-    } catch (e) {
-      print('DEBUG_ABSENSI_HISTORY: Error memuat riwayat absensi: $e');
-    }
-  }
 
   Future<void> _logout() async {
     await _authApi.logout();
@@ -274,7 +258,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       context,
       MaterialPageRoute(
         builder: (context) => QrScanScreen(
-          onQrScanned: (qrData) {}, // Callback ini bisa kosong atau digunakan untuk logging saja
+          onQrScanned: (qrData) {},
         ),
       ),
     );
@@ -386,7 +370,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       } else {
         message = 'Belum waktunya absen masuk untuk kelas ini. Jam masuk yang diizinkan: ${DateFormat('HH:mm').format(absensiAllowedTime)}.';
       }
-    } else { // type == 'pulang'
+    } else {
       if (currentTime.isAfter(absensiAllowedTime) || currentTime.isAtSameMomentAs(absensiAllowedTime)) {
         isTimeValid = true;
       } else {
@@ -432,8 +416,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     try {
       await _absensiApi.processAbsensi(userId, kelas['id'].toString(), type, imagePath, token);
       _showSnackBar('Absensi berhasil!', Colors.green);
-      _fetchMahasiswaData();
-      _fetchAbsensiHistory();
+      await _fetchData(); // Refresh data setelah absensi
     } catch (e) {
       String errorMessage = e.toString().replaceFirst('Exception: ', '');
       _showSnackBar(errorMessage, Colors.red);
@@ -524,6 +507,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       });
       await prefs.setString('is_face_recorded', 'yes');
       _showSnackBar('Wajah Anda berhasil direkam!', Colors.green);
+      await _fetchData(); // Refresh data setelah rekam wajah (jika ada data terkait yang berubah)
     } catch (e) {
       print('DEBUG_FLUTTER: Error saat _processFaceEnrollment: $e');
       String errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -611,128 +595,140 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
           ),
           Expanded(
-            child: _isLoadingData
-                ? Center(
-                    child: CircularProgressIndicator(color: Colors.blue.shade800),
-                  )
-                : _errorMessage != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.error_outline, color: Colors.red.shade700, size: 80),
-                              const SizedBox(height: 20),
-                              Text(
-                                _errorMessage!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(color: Colors.red, fontSize: 18, fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 20),
-                              ElevatedButton.icon(
-                                onPressed: _fetchMahasiswaData,
-                                icon: const Icon(Icons.replay, color: Colors.white),
-                                label: const Text('Coba Lagi', style: TextStyle(color: Colors.white, fontSize: 16)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue.shade800,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                                  elevation: 5,
+            child: RefreshIndicator( // <--- Widget RefreshIndicator
+              onRefresh: _fetchData, // Panggil _fetchData saat ditarik ke bawah
+              color: Colors.blue.shade800, // Warna indikator refresh
+              child: _isLoadingData
+                  ? Center(
+                      child: CircularProgressIndicator(color: Colors.blue.shade800),
+                    )
+                  : _errorMessage != null
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red.shade700, size: 80),
+                                const SizedBox(height: 20),
+                                Text(
+                                  _errorMessage!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.red, fontSize: 18, fontWeight: FontWeight.w600),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : _mahasiswaList.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24.0),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.info_outline, color: Colors.grey.shade400, size: 80),
-                                  const SizedBox(height: 20),
-                                  const Text(
-                                    'Tidak ada data kelas yang dapat ditampilkan saat ini.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(fontSize: 18, color: Colors.grey, fontWeight: FontWeight.w500),
+                                const SizedBox(height: 20),
+                                ElevatedButton.icon(
+                                  onPressed: _fetchData, // Coba lagi juga panggil _fetchData
+                                  icon: const Icon(Icons.replay, color: Colors.white),
+                                  label: const Text('Coba Lagi', style: TextStyle(color: Colors.white, fontSize: 16)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue.shade800,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
+                                    elevation: 5,
                                   ),
-                                ],
-                              ),
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                            itemCount: _mahasiswaList.length,
-                            itemBuilder: (context, index) {
-                              final mahasiswa = _mahasiswaList[index];
-
-                              final todayAbsen = _absensiHistoryList.firstWhere(
-                                (item) => item.idKelas == mahasiswa['id'].toString() &&
-                                    item.idMahasiswa == _userId &&
-                                    item.tanggal == DateFormat('d MMM yyyy').format(DateTime.now()), // Updated date format
-                                orElse: () => AbsensiHistoryItem(
-                                  id: '',
-                                  tanggal: '',
-                                  namaKelas: '',
-                                  idKelas: '',
-                                  idMahasiswa: '',
-                                  statusKehadiran: '',
-                                  waktuAbsenMasuk: null,
-                                  waktuAbsenPulang: null,
                                 ),
-                              );
-
-                              return Card(
-                                margin: const EdgeInsets.symmetric(vertical: 8.0),
-                                elevation: 8,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                shadowColor: Colors.blue.shade100.withOpacity(0.7),
-                                child: InkWell(
-                                  onTap: () => _showKelasEntryConfirmation(mahasiswa),
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(20.0),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          mahasiswa['nama_kelas'] ?? 'Nama Kelas Tidak Diketahui',
-                                          style: TextStyle(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.blue.shade800,
+                              ],
+                            ),
+                          ),
+                        )
+                      : _mahasiswaList.isEmpty
+                          ? ListView( // Gunakan ListView agar RefreshIndicator bisa bekerja meskipun kosong
+                              physics: const AlwaysScrollableScrollPhysics(), // Penting agar bisa ditarik
+                              children: [
+                                SizedBox(
+                                  height: MediaQuery.of(context).size.height * 0.5, // Beri tinggi agar Center berfungsi
+                                  child: Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(24.0),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.info_outline, color: Colors.grey.shade400, size: 80),
+                                          const SizedBox(height: 20),
+                                          const Text(
+                                            'Tidak ada data kelas yang dapat ditampilkan saat ini.',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(fontSize: 18, color: Colors.grey, fontWeight: FontWeight.w500),
                                           ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        const Divider(color: Colors.black12, thickness: 1),
-                                        const SizedBox(height: 10),
-                                        InfoRow(Icons.book_outlined, 'Kode Kelas', mahasiswa['kode_kelas']),
-                                        const SizedBox(height: 8),
-                                        InfoRow(
-                                          Icons.access_time,
-                                          'Jam Masuk (Hari Ini)',
-                                          todayAbsen.waktuAbsenMasuk != null && todayAbsen.waktuAbsenMasuk!.isNotEmpty
-                                              ? todayAbsen.waktuAbsenMasuk!
-                                              : 'Belum absen',
-                                        ),
-                                        const SizedBox(height: 8),
-                                        InfoRow(
-                                          Icons.access_time_filled,
-                                          'Jam Pulang (Hari Ini)',
-                                          todayAbsen.waktuAbsenPulang != null && todayAbsen.waktuAbsenPulang!.isNotEmpty
-                                              ? todayAbsen.waktuAbsenPulang!
-                                              : 'Belum absen',
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
-                              );
-                            },
-                          ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                              itemCount: _mahasiswaList.length,
+                              itemBuilder: (context, index) {
+                                final mahasiswa = _mahasiswaList[index];
+
+                                final todayAbsen = _absensiHistoryList.firstWhere(
+                                  (item) => item.idKelas == mahasiswa['id'].toString() &&
+                                      item.idMahasiswa == _userId &&
+                                      item.tanggal == DateFormat('d MMM yyyy').format(DateTime.now()), // Menggunakan 'yyyy'
+                                  orElse: () => AbsensiHistoryItem(
+                                    id: '',
+                                    tanggal: '',
+                                    namaKelas: '',
+                                    idKelas: '',
+                                    idMahasiswa: '',
+                                    statusKehadiran: '',
+                                    waktuAbsenMasuk: null,
+                                    waktuAbsenPulang: null,
+                                  ),
+                                );
+
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(vertical: 8.0),
+                                  elevation: 8,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  shadowColor: Colors.blue.shade100.withOpacity(0.7),
+                                  child: InkWell(
+                                    onTap: () => _showKelasEntryConfirmation(mahasiswa),
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(20.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            mahasiswa['nama_kelas'] ?? 'Nama Kelas Tidak Diketahui',
+                                            style: TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue.shade800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          const Divider(color: Colors.black12, thickness: 1),
+                                          const SizedBox(height: 10),
+                                          InfoRow(Icons.book_outlined, 'Kode Kelas', mahasiswa['kode_kelas']),
+                                          const SizedBox(height: 8),
+                                          InfoRow(
+                                            Icons.access_time,
+                                            'Jam Masuk (Hari Ini)',
+                                            todayAbsen.waktuAbsenMasuk != null && todayAbsen.waktuAbsenMasuk!.isNotEmpty
+                                                ? todayAbsen.waktuAbsenMasuk!
+                                                : 'Belum absen',
+                                          ),
+                                          const SizedBox(height: 8),
+                                          InfoRow(
+                                            Icons.access_time_filled,
+                                            'Jam Pulang (Hari Ini)',
+                                            todayAbsen.waktuAbsenPulang != null && todayAbsen.waktuAbsenPulang!.isNotEmpty
+                                                ? todayAbsen.waktuAbsenPulang!
+                                                : 'Belum absen',
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+            ),
           ),
         ],
       ),
