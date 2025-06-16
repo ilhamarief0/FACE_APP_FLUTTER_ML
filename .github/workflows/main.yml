@@ -113,4 +113,5 @@ jobs:
         with:
           artifacts: build/app/outputs/flutter-apk/app-release.apk
           tag: v${{ env.VERSION }}
+          allowUpdates: true
           token: ${{ secrets.TOKEN }}
