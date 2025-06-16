@@ -2,8 +2,6 @@ name: "Build"
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [dev, test, main]
   push:
     branches: [dev, test, main]
 
@@ -13,49 +11,85 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@v3
 
+      # 2. Setup Java
       - name: Set Up Java
         uses: actions/setup-java@v3.12.0
         with:
           distribution: 'oracle'
           java-version: '17'
 
+      # 3. Setup Flutter
       - name: Set Up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.29.0'
           channel: 'stable'
 
+      # 4. Install Dependencies
       - name: Install Dependencies
         run: flutter pub get
 
+      # 5. PATCH qr_code_scanner untuk AGP, JVM, dan Manifest
+      - name: Patch qr_code_scanner for AGP compatibility and JVM target
+        run: |
+          PLUGIN_PATH="$HOME/.pub-cache/hosted/pub.dev/qr_code_scanner-1.0.1/android"
+          GRADLE_FILE="$PLUGIN_PATH/build.gradle"
+          MANIFEST_FILE="$PLUGIN_PATH/src/main/AndroidManifest.xml"
+
+          echo "🔧 Mem-patch build.gradle..."
+          if grep -q "namespace" "$GRADLE_FILE"; then
+            echo "✅ Namespace sudah ada"
+          else
+            sed -i '0,/android {/s//android {\n    namespace "com.example.qr_code_scanner"/' "$GRADLE_FILE"
+            echo "✅ Namespace ditambahkan"
+          fi
+
+          echo "🔧 Mem-patch AndroidManifest.xml..."
+          sed -i 's/package="net.touchcapture.qr.flutterqr"//' "$MANIFEST_FILE"
+          echo "✅ Atribut package dihapus dari AndroidManifest.xml"
+
+          echo "🔧 Menambahkan jvmTarget Kotlin = 1.8"
+          echo 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions {
+                  jvmTarget = "1.8"
+              }
+          }' >> "$GRADLE_FILE"
+          echo "✅ jvmTarget ditambahkan ke build.gradle"
+
+      # 6. Create .env file
       - name: Create .env file
         run: |
           echo "API_URL=${{ secrets.API_URL }}" > .env
           cat .env
 
+      # 7. Build APK (Release)
       - name: Build APK (Release)
         run: |
           flutter build apk --release
           if [ ! -f build/app/outputs/flutter-apk/app-release.apk ]; then
-            echo "APK not found! Build failed."
+            echo "❌ APK not found! Build failed."
             exit 1
           fi
 
+      # 8. Upload Artifacts
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Releases
           path: build/app/outputs/flutter-apk/app-release.apk
 
+      # 9. Extract version from pubspec.yaml
       - name: Extract version from pubspec.yaml
         id: extract_version
         run: |
           version=$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2 | tr -d '\r')
           echo "VERSION=$version" >> $GITHUB_ENV
 
+      # 10. Check if Tag Exists
       - name: Check if Tag Exists
         id: check_tag
         run: |
@@ -63,7 +97,9 @@ jobs:
             echo "TAG_EXISTS=true" >> $GITHUB_ENV
           else
             echo "TAG_EXISTS=false" >> $GITHUB_ENV
+          fi
 
+      # 11. Modify Tag if it Exists
       - name: Modify Tag
         if: env.TAG_EXISTS == 'true'
         id: modify_tag
@@ -71,6 +107,7 @@ jobs:
           new_version="${{ env.VERSION }}-build-${{ github.run_number }}"
           echo "VERSION=$new_version" >> $GITHUB_ENV
 
+      # 12. Create Release
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
