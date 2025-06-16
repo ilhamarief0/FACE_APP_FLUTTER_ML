@@ -49,8 +49,9 @@ jobs:
 
       - name: Patch qr_code_scanner for AGP compatibility
         run: |
-          GRADLE_FILE="$HOME/.pub-cache/hosted/pub.dev/qr_code_scanner-1.0.1/android/build.gradle"
-          MANIFEST_FILE="$HOME/.pub-cache/hosted/pub.dev/qr_code_scanner-1.0.1/android/src/main/AndroidManifest.xml"
+          PLUGIN_PATH="$HOME/.pub-cache/hosted/pub.dev/qr_code_scanner-1.0.1/android"
+          GRADLE_FILE="$PLUGIN_PATH/build.gradle"
+          MANIFEST_FILE="$PLUGIN_PATH/src/main/AndroidManifest.xml"
       
           echo "🔧 Mem-patch build.gradle..."
           if grep -q "namespace" "$GRADLE_FILE"; then
@@ -60,9 +61,19 @@ jobs:
             echo "✅ Namespace ditambahkan ke build.gradle"
           fi
       
-          echo "🔧 Menghapus 'package=' dari AndroidManifest.xml..."
-          sed -i '/package="net.touchcapture.qr.flutterqr"/d' "$MANIFEST_FILE"
-          echo "✅ Package attribute dihapus dari AndroidManifest.xml"
+          echo "🔧 Mem-patch AndroidManifest.xml..."
+          # Hapus atribut package (hanya bagian dalam <manifest>)
+          sed -i 's/package="net.touchcapture.qr.flutterqr"//' "$MANIFEST_FILE"
+      
+          # Periksa apakah masih valid
+          if grep -q 'package=' "$MANIFEST_FILE"; then
+            echo "❌ Gagal menghapus atribut package dengan benar!"
+            cat "$MANIFEST_FILE"
+            exit 1
+          fi
+      
+          echo "✅ AndroidManifest.xml telah diperbaiki"
+
 
       # 6. Create .env file
       - name: Create .env file
