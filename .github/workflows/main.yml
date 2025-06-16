@@ -55,14 +55,11 @@ jobs:
           echo "✅ Atribut package dihapus dari AndroidManifest.xml"
 
           echo "🔧 Menambahkan jvmTarget Kotlin = 1.8"
-          cat <<EOF >> "$GRADLE_FILE"
-
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
-}
-EOF
+          echo 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions {
+                  jvmTarget = "1.8"
+              }
+          }' >> "$GRADLE_FILE"
           echo "✅ jvmTarget ditambahkan ke build.gradle"
 
       # 6. Create .env file
