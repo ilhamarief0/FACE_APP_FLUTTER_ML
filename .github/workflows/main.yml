@@ -47,6 +47,23 @@ jobs:
             echo "Namespace patched!"
           fi
 
+      - name: Patch qr_code_scanner for AGP compatibility
+        run: |
+          GRADLE_FILE="$HOME/.pub-cache/hosted/pub.dev/qr_code_scanner-1.0.1/android/build.gradle"
+          MANIFEST_FILE="$HOME/.pub-cache/hosted/pub.dev/qr_code_scanner-1.0.1/android/src/main/AndroidManifest.xml"
+      
+          echo "🔧 Mem-patch build.gradle..."
+          if grep -q "namespace" "$GRADLE_FILE"; then
+            echo "✅ Sudah ada namespace"
+          else
+            sed -i '0,/android {/s//android {\n    namespace "com.example.qr_code_scanner"/' "$GRADLE_FILE"
+            echo "✅ Namespace ditambahkan ke build.gradle"
+          fi
+      
+          echo "🔧 Menghapus 'package=' dari AndroidManifest.xml..."
+          sed -i '/package="net.touchcapture.qr.flutterqr"/d' "$MANIFEST_FILE"
+          echo "✅ Package attribute dihapus dari AndroidManifest.xml"
+
       # 6. Create .env file
       - name: Create .env file
         run: |
